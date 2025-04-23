@@ -61,6 +61,10 @@ async function start() {
     await ws.connect();
     console.log('🔌 WebSocketV2 connected');
     const allTokens = foStocks.map(stock => stock.token.toString());
+    const tokenToSymbol = {};
+    foStocks.forEach(stock => {
+        tokenToSymbol[stock.token.toString()] = stock.symbol;
+    });
     console.log(allTokens);
     console.log(`📦 Subscribing to ${allTokens.length} F&O stocks...`);
     // e.g. ["3045","2885","500325",…] 
@@ -103,7 +107,7 @@ async function start() {
         }
 
         for (const candle of completedCandles) {
-            // console.log('🧱 Final Candle:', candle);
+            console.log('🧱 Final Candle:', candle);
 
             const token = candle.symbol;
 
@@ -128,15 +132,22 @@ async function start() {
                 bullishHaramiEntry([candle], rsi, volume, vwap),
                 risingThreeEntry([candle], rsi, volume, vwap),
             ];
-
-            const detected = patterns.find(p => p !== null);
+            const detectedIndex = patterns.findIndex(p => p !== null);
+            const detected = patterns[detectedIndex];
+            const patternNames = [
+                "Tweezer Bottom", "Bullish Engulfing", "Hammer",
+                "Piercing Line", "Morning Star", "Inverted Hammer",
+                "Three White Soldiers", "Bullish Harami", "Rising Three"
+            ];
 
             if (detected) {
-                console.log(`🚀 Pattern Detected: ${detected.action} ${detected.pattern || ''} at ₹${candle.close}`);
+                const stockSymbol = tokenToSymbol[candle.symbol] || candle.symbol;
+
+                console.log(`🚀 Pattern Detected: ${stockSymbol} ${patternNames[detectedIndex]} at ₹${candle.close}`);
 
                 const newPattern = new PatternModel({
-                    stockName: candle.symbol,
-                    patternName: detected.pattern || "Ultra Short Pattern",
+                    stockName: stockSymbol,
+                    patternName: patternNames[detectedIndex],
                     action: detected.action,
                     stopLoss: detected.stopLoss,
                     price: candle.close,
@@ -149,19 +160,19 @@ async function start() {
                 console.log('💾 Pattern saved to MongoDB');
 
                 const alertMessage = `
-🧿 *Stock:* ${candle.symbol}
-📈 *Pattern:* ${detected.pattern || "Ultra Short"}
+🧿 *Stock:* ${stockSymbol}
+📈 *Pattern:* ${patternNames[detectedIndex]}
 🔵 *Action:* ${detected.action} CALL
 💰 *Price:* ₹${candle.close}
 🛡️ *Stop Loss:* ₹${detected.stopLoss}
 🎯 *Target:* ₹${(candle.close * 1.10).toFixed(2)}
 🕰️ *Time:* ${new Date().toLocaleTimeString()}
 🚀 *New Pattern Detected!*
-`;
-
+    `;
                 await sendTelegramAlert(alertMessage);
                 console.log('🚀 Telegram alert sent!');
-            } 
+            }
+
         }
     }, 1000);
 }

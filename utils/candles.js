@@ -33,6 +33,21 @@ function updateCandle(token, price, timestamp, volume = 1) {
     candle.volume += volume;
     candle.volumePriceSum += price * volume;
 }
+function decorateCandle(candle) {
+    const body = Math.abs(candle.close - candle.open);
+    const upperShadow = candle.high - Math.max(candle.open, candle.close);
+    const lowerShadow = Math.min(candle.open, candle.close) - candle.low;
+    const mid = (candle.open + candle.close) / 2;
+
+    candle.body = parseFloat(body.toFixed(2));
+    candle.upperShadow = parseFloat(upperShadow.toFixed(2));
+    candle.lowerShadow = parseFloat(lowerShadow.toFixed(2));
+    candle.mid = parseFloat(mid.toFixed(2));
+    candle.isBullish = candle.close > candle.open;
+    candle.isBearish = candle.open > candle.close;
+
+    return candle;
+}
 
 function finalizeCandles(currentTime) {
     const candles = [];
@@ -45,22 +60,26 @@ function finalizeCandles(currentTime) {
             if (minute < nowMinute) {
                 candle.vwap = parseFloat((candle.volumePriceSum / candle.volume).toFixed(2));
 
+                // 🚀 Decorate candle with isBullish, body, upperShadow, etc.
+                decorateCandle(candle);  // ✅ ADD THIS
+
                 if (!finalizedCandles[token]) finalizedCandles[token] = [];
                 finalizedCandles[token].push(candle);
 
-                // keep only last 20 candles per token
+                // Keep only last 20 candles
                 if (finalizedCandles[token].length > 20) {
                     finalizedCandles[token].shift();
                 }
 
                 candles.push(candle);
-                delete data[key]; // remove finalized
+                delete data[key];
             }
         }
     }
 
     return candles;
 }
+
 
 function getAvgVolume(token) {
     const candles = finalizedCandles[token] || [];
