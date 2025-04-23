@@ -1,72 +1,105 @@
-// utils/candles.js
+// In utils/candles.js
+const candleMap = new Map();  // token -> current building candle
+const finalizedCandles = {};  // token -> array of candles
+const rsiMap = new Map(); // token -> array of last 15 closes
 
-const candleBuilders = {};  // To track all 272 stocks separately
+function updateCandle(token, price, timestamp, volume = 1) {
+    const candleKey = Math.floor(timestamp / 60000); // 1 min
 
-// Update tick into the candle builder
-function updateCandle(symbol, tickPrice, timestamp) {
-    const minuteKey = getMinuteKey(timestamp);
-
-    if (!candleBuilders[symbol]) {
-        candleBuilders[symbol] = {};
+    if (!candleMap.has(token)) {
+        candleMap.set(token, {});
     }
 
-    let builder = candleBuilders[symbol][minuteKey];
+    let current = candleMap.get(token);
 
-    if (!builder) {
-        // New minute, create a new candle
-        builder = {
-            open: tickPrice,
-            high: tickPrice,
-            low: tickPrice,
-            close: tickPrice,
-            startTime: minuteKey,
+    if (!current[candleKey]) {
+        current[candleKey] = {
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+            volume: 0,
+            volumePriceSum: 0,
+            symbol: token,
+            timestamp,
         };
-        candleBuilders[symbol][minuteKey] = builder;
-    } else {
-        // Update existing candle
-        builder.high = Math.max(builder.high, tickPrice);
-        builder.low = Math.min(builder.low, tickPrice);
-        builder.close = tickPrice;
     }
+
+    let candle = current[candleKey];
+
+    candle.high = Math.max(candle.high, price);
+    candle.low = Math.min(candle.low, price);
+    candle.close = price;
+    candle.volume += volume;
+    candle.volumePriceSum += price * volume;
 }
 
-// Check and finalize completed candles
-function finalizeCandles(currentTimestamp) {
-    const completedCandles = [];
+function finalizeCandles(currentTime) {
+    const candles = [];
 
-    for (const symbol in candleBuilders) {
-        const minutes = Object.keys(candleBuilders[symbol]);
+    for (const [token, data] of candleMap.entries()) {
+        for (const [key, candle] of Object.entries(data)) {
+            const minute = parseInt(key);
+            const nowMinute = Math.floor(currentTime / 60000);
 
-        for (const minKey of minutes) {
-            if (minKey < getMinuteKey(currentTimestamp)) {
-                // Candle is completed
-                const candle = candleBuilders[symbol][minKey];
-                completedCandles.push({
-                    symbol,
-                    open: candle.open,
-                    high: candle.high,
-                    low: candle.low,
-                    close: candle.close,
-                    startTime: candle.startTime,
-                });
+            if (minute < nowMinute) {
+                candle.vwap = parseFloat((candle.volumePriceSum / candle.volume).toFixed(2));
 
-                // Remove from active builders
-                delete candleBuilders[symbol][minKey];
+                if (!finalizedCandles[token]) finalizedCandles[token] = [];
+                finalizedCandles[token].push(candle);
+
+                // keep only last 20 candles per token
+                if (finalizedCandles[token].length > 20) {
+                    finalizedCandles[token].shift();
+                }
+
+                candles.push(candle);
+                delete data[key]; // remove finalized
             }
         }
     }
 
-    return completedCandles;
+    return candles;
 }
 
-// Helper: get "YYYY-MM-DD HH:MM" key
-function getMinuteKey(timestamp) {
-    const date = new Date(timestamp);
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+function getAvgVolume(token) {
+    const candles = finalizedCandles[token] || [];
+    if (candles.length === 0) return 1;
+    const total = candles.reduce((sum, c) => sum + (c.volume || 0), 0);
+    return total / candles.length;
 }
+function calculateRSI(token, close) {
+    if (!rsiMap.has(token)) {
+        rsiMap.set(token, []);
+    }
 
-function pad(num) {
-    return num.toString().padStart(2, '0');
+    const closes = rsiMap.get(token);
+    closes.push(close);
+    if (closes.length > 15) closes.shift(); // keep only last 15 closes
+
+    if (closes.length < 15) return null; // need full 14 periods
+
+    const gains = [], losses = [];
+
+    for (let i = 1; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains.push(diff);
+        else losses.push(-diff);
+    }
+
+    const avgGain = gains.reduce((a, b) => a + b, 0) / 14;
+    const avgLoss = losses.reduce((a, b) => a + b, 0) / 14;
+
+    if (avgLoss === 0) return 100; // prevent division by zero
+
+    const rs = avgGain / avgLoss;
+    const rsi = 100 - (100 / (1 + rs));
+
+    return parseFloat(rsi.toFixed(2));
 }
-
-module.exports = { updateCandle, finalizeCandles };
+module.exports = {
+    updateCandle,
+    finalizeCandles,
+    getAvgVolume,
+    calculateRSI
+};
