@@ -157,14 +157,6 @@ function risingThreeExit(entryPrice, currentPrice) {
     return 'HOLD';
 }
 
-function risingThreeEntry(candles, rsi, volume, vwap) {
-    const isRisingThree = candles[0].isBearish && candles[1].isBullish && candles[2].isBullish &&
-        candles[3].isBullish && candles[4].isBullish;
-    const valid = isRSIOversold(rsi) && isVolumeSpike(volume, candles.avgVolume) && isNearVWAP(candles[4].close, vwap);
-
-    if (isRisingThree && valid) return { action: 'BUY', stopLoss: candles[4].low };
-    return null;
-}
 
 function risingThreeExit(entryPrice, currentPrice) {
     const profitPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
@@ -172,3 +164,26 @@ function risingThreeExit(entryPrice, currentPrice) {
     return 'HOLD';
 }
 
+module.exports = {
+    // Entry functions
+    tweezerPatternEntry,
+    engulfingPatternEntry,
+    hammerPatternEntry,
+    piercingLineEntry,
+    morningStarEntry,
+    invertedHammerPatternEntry,
+    threeWhiteSoldiersEntry,
+    bullishHaramiEntry,
+    risingThreeEntry,
+
+    // (If you ever need exits)
+    tweezerPatternExit,
+    engulfingPatternExit,
+    hammerPatternExit,
+    piercingLineExit,
+    morningStarExit,
+    invertedHammerPatternExit,
+    threeWhiteSoldiersExit,
+    bullishHaramiExit,
+    risingThreeExit,
+};
