@@ -10,17 +10,7 @@ const express = require('express');
 const cors = require('cors');
 const { getAvgVolume, calculateRSI } = require('./utils/candles');
 
-const {
-    tweezerPatternEntry,
-    engulfingPatternEntry,
-    hammerPatternEntry,
-    piercingLineEntry,
-    morningStarEntry,
-    invertedHammerPatternEntry,
-    threeWhiteSoldiersEntry,
-    bullishHaramiEntry,
-    risingThreeEntry
-} = require('./patterns/patterns');
+const ScalpingStrategies = require('./strategies/scalpingStrategies');
 
 const app = express();
 app.use(cors());
@@ -32,6 +22,9 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
     .catch(err => console.error('MongoDB connection error:', err));
 
 async function start() {
+    // Initialize scalping strategies
+    const scalpingStrategies = new ScalpingStrategies();
+    
     // Set up backend API to fetch patterns
     app.get('/patterns', async (req, res) => {
         try {
@@ -110,69 +103,67 @@ async function start() {
             console.log('🧱 Final Candle:', candle);
 
             const token = candle.symbol;
-
-            // const rsi = calculateRSI(token, candle.close); // ✅ Real RSI
-            // if (rsi === null) {
-            //     console.log(`⏳ Skipping ${token} - RSI not ready`);
-            //     continue;
-            // }
-            const rsi = 25;
+            const currentPrice = candle.close;
             const vwap = candle.vwap;
             const volume = candle.volume;
-            const avgVolume = getAvgVolume(token);
 
-            const patterns = [
-                tweezerPatternEntry([candle], rsi, volume, vwap),
-                engulfingPatternEntry([candle], rsi, volume, vwap),
-                hammerPatternEntry(candle, rsi, volume, vwap),
-                piercingLineEntry([candle], rsi, volume, vwap),
-                morningStarEntry([candle], rsi, volume, vwap),
-                invertedHammerPatternEntry(candle, rsi, volume, vwap),
-                threeWhiteSoldiersEntry([candle], rsi, volume, vwap),
-                bullishHaramiEntry([candle], rsi, volume, vwap),
-                risingThreeEntry([candle], rsi, volume, vwap),
-            ];
-            const detectedIndex = patterns.findIndex(p => p !== null);
-            const detected = patterns[detectedIndex];
-            const patternNames = [
-                "Tweezer Bottom", "Bullish Engulfing", "Hammer",
-                "Piercing Line", "Morning Star", "Inverted Hammer",
-                "Three White Soldiers", "Bullish Harami", "Rising Three"
-            ];
+            // Check exit conditions for active positions
+            const exitSignal = scalpingStrategies.checkExitConditions(token, currentPrice);
+            if (exitSignal) {
+                const stockSymbol = tokenToSymbol[token] || token;
+                console.log(`🔄 Exit Signal: ${stockSymbol} - ${exitSignal.reason} (${exitSignal.profitPercent}%)`);
+                
+                const exitAlertMessage = `
+🔄 *Exit Signal:* ${stockSymbol}
+📊 *Reason:* ${exitSignal.reason}
+💰 *Profit/Loss:* ${exitSignal.profitPercent}%
+🕰️ *Time:* ${new Date().toLocaleTimeString()}
+    `;
+                await sendTelegramAlert(exitAlertMessage);
+            }
 
-            if (detected) {
-                const stockSymbol = tokenToSymbol[candle.symbol] || candle.symbol;
+            // Run master scalping strategy
+            const signal = scalpingStrategies.masterScalpingStrategy(token, currentPrice, volume, vwap);
 
-                console.log(`🚀 Pattern Detected: ${stockSymbol} ${patternNames[detectedIndex]} at ₹${candle.close}`);
+            if (signal) {
+                const stockSymbol = tokenToSymbol[token] || token;
+                const confidencePercent = (signal.confidence * 100).toFixed(1);
+
+                console.log(`🚀 Scalping Signal: ${stockSymbol} ${signal.strategy} (${confidencePercent}% confidence) at ₹${currentPrice}`);
+
+                // Record position for exit management
+                scalpingStrategies.recordPosition(token, signal);
 
                 const newPattern = new PatternModel({
                     stockName: stockSymbol,
-                    patternName: patternNames[detectedIndex],
-                    action: detected.action,
-                    stopLoss: detected.stopLoss,
-                    price: candle.close,
-                    target: parseFloat((candle.close * 1.10).toFixed(2)),
+                    patternName: signal.strategy,
+                    action: signal.action,
+                    stopLoss: signal.stopLoss,
+                    price: currentPrice,
+                    target: signal.target,
                     optionType: 'CALL',
+                    confidence: signal.confidence,
                     timestamp: new Date(),
                 });
 
                 await newPattern.save();
-                console.log('💾 Pattern saved to MongoDB');
+                console.log('💾 Signal saved to MongoDB');
 
                 const alertMessage = `
 🧿 *Stock:* ${stockSymbol}
-📈 *Pattern:* ${patternNames[detectedIndex]}
-🔵 *Action:* ${detected.action} CALL
-💰 *Price:* ₹${candle.close}
-🛡️ *Stop Loss:* ₹${detected.stopLoss}
-🎯 *Target:* ₹${(candle.close * 1.10).toFixed(2)}
+📈 *Strategy:* ${signal.strategy}
+🔵 *Action:* ${signal.action} CALL
+💰 *Price:* ₹${currentPrice}
+🛡️ *Stop Loss:* ₹${signal.stopLoss}
+🎯 *Target:* ₹${signal.target}
+📊 *Confidence:* ${confidencePercent}%
+📝 *Reason:* ${signal.reason}
 🕰️ *Time:* ${new Date().toLocaleTimeString()}
-🚀 *New Pattern Detected!*
+🚀 *High-Accuracy Scalping Signal!*
     `;
                 await sendTelegramAlert(alertMessage);
                 console.log('🚀 Telegram alert sent!');
             }
-
         }
     }, 1000);
 }
