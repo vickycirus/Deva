@@ -10,6 +10,7 @@ const patternSchema = new mongoose.Schema({
     price: Number,
     target: Number,         // (optional) or you can calculate based on profit%
     optionType: String,     // "CALL"
+    confidence: Number,     // Strategy confidence (0-1)
     timestamp: { type: Date, default: Date.now },
 });
 
